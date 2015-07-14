@@ -181,12 +181,26 @@ public:
     virtual void clear() = 0;
     virtual change_val_t pop() = 0;
     virtual const change_val_t &peek() = 0;
+    virtual bool is_newly_consistent() const = 0;
+    virtual void mark_consistency_old() = 0;
 };
 
 class squashing_queue_t : public maybe_squashing_queue_t {
+public:
+    squashing_queue_t() : newly_consistent(true) { }
+private:
+    virtual bool is_newly_consistent() const {
+        return size() == 0 && newly_consistent;
+    }
+    virtual void mark_consistency_old() {
+        newly_consistent = false;
+    }
+
     virtual void add(change_val_t change_val) {
+        newly_consistent = true;
         auto it = queue.find(change_val.pkey);
         if (it == queue.end()) {
+            queue_order.push_back(change_val.pkey);
             auto pair = std::make_pair(std::move(change_val.pkey),
                                        std::move(change_val));
             it = queue.insert(std::move(pair)).first;
@@ -205,6 +219,7 @@ class squashing_queue_t : public maybe_squashing_queue_t {
         }
     }
     virtual size_t size() const {
+        guarantee(queue.size() == queue_order.size());
         return queue.size();
     }
     virtual void clear() {
@@ -217,15 +232,23 @@ class squashing_queue_t : public maybe_squashing_queue_t {
     }
     virtual change_val_t pop() {
         guarantee(size() != 0);
-        auto it = queue.begin();
+        auto it = queue.find(*queue_order.begin());
+        guarantee(it != queue.end());
         auto ret = std::move(it->second);
         queue.erase(it);
+        queue_order.pop_front();
         return ret;
     }
+
+    bool newly_consistent;
     std::map<store_key_t, change_val_t> queue;
+    std::deque<store_key_t> queue_order;
 };
 
 class nonsquashing_queue_t : public maybe_squashing_queue_t {
+    virtual bool is_newly_consistent() const { return false; }
+    virtual void mark_consistency_old() { unreachable(); }
+
     virtual void add(change_val_t change_val) {
         queue.push_back(std::move(change_val));
     }
@@ -1141,6 +1164,12 @@ datum_t ready_datum() {
             { datum_string_t("state"), datum_t("ready") }});
 }
 
+datum_t consistent_datum() {
+    return datum_t(
+        std::map<datum_string_t, datum_t>{
+            { datum_string_t("state"), datum_t("consistent") }});
+}
+
 datum_t state_datum(state_t state) {
     switch (state) {
     case state_t::INITIALIZING: return initializing_datum();
@@ -1539,9 +1568,15 @@ public:
     }
 
     datum_t pop_el() final {
-        if (state != sent_state && include_states) {
-            sent_state = state;
-            return state_datum(state);
+        if (include_states) {
+            if (state != sent_state) {
+                sent_state = state;
+                return state_datum(state);
+            }
+            if (queue->is_newly_consistent()) {
+                queue->mark_consistency_old();
+                return consistent_datum();
+            }
         }
         datum_t ret;
         if (state != state_t::READY && include_initial_vals) {
@@ -1555,7 +1590,9 @@ public:
         return ret;
     }
     bool has_el() final {
-        return (include_states && state != sent_state)
+        return (include_states
+                && (state != sent_state
+                    || queue->is_newly_consistent()))
             || (include_initial_vals && state != state_t::READY)
             || has_change_val();
     }
@@ -1733,9 +1770,15 @@ public:
     }
 
     datum_t pop_el() final {
-        if (state != sent_state && include_states) {
-            sent_state = state;
-            return state_datum(state);
+        if (include_states) {
+            if (state != sent_state) {
+                sent_state = state;
+                return state_datum(state);
+            }
+            if (queue->is_newly_consistent()) {
+                queue->mark_consistency_old();
+                return consistent_datum();
+            }
         }
         if (artificial_initial_vals.size() != 0) {
             datum_t d = artificial_initial_vals.back();
@@ -1748,7 +1791,9 @@ public:
         return change_val_to_change(pop_change_val());
     }
     bool has_el() final {
-        return (include_states && state != sent_state)
+        return (include_states
+                && (state != sent_state
+                    || queue->is_newly_consistent()))
             || artificial_initial_vals.size() != 0
             || has_change_val();
     }
