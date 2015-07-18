@@ -17,12 +17,6 @@
 #include "rdb_protocol/shards.hpp"
 #include "rdb_protocol/table_common.hpp"
 
-void store_t::note_reshard() {
-    if (changefeed_server.has()) {
-        changefeed_server->stop_all();
-    }
-}
-
 reql_version_t update_sindex_last_compatible_version(secondary_index_t *sindex,
                                                      buf_lock_t *sindex_block) {
     sindex_disk_info_t sindex_info;

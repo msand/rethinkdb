@@ -382,7 +382,6 @@ public:
     new_mutex_t sindex_queue_mutex;
 
     rdb_context_t *ctx;
-    scoped_ptr_t<ql::changefeed::server_t> changefeed_server;
 
     // This report is used by the outdated index issue tracker, and should be updated
     // any time the set of outdated indexes for this table changes

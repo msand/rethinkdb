@@ -45,6 +45,8 @@ public:
         home_thread_mixin_t::assert_thread();
     }
 
+    virtual rdb_context_t rdb_ctx() = 0;
+
     region_t get_region() {
         /* Safe to call on any thread */
         return region;
@@ -243,7 +245,8 @@ public:
             THROWS_ONLY(interrupted_exc_t) = 0;
 
 protected:
-    explicit store_view_t(region_t r) : region(r) { }
+    explicit store_view_t(rdb_context_t *_ctx, region_t r) : ctx(_ctx), region(r) { }
+    rdb_context_t *ctx;
 
 private:
     const region_t region;

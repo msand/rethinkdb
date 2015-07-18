@@ -45,7 +45,11 @@ public:
     "home thread" will be set as the home thread of the underlying store. */
 
     store_subview_t(store_view_t *_store_view, region_t region)
-        : store_view_t(region), store_view(_store_view) {
+        : store_view_t(_store_view->ctx, region),
+          store_view(_store_view),
+          changefeed_server((ctx == NULL || ctx->manager == NULL)
+                            ? NULL
+                            : new ql::changefeed::server_t(ctx->manager)) {
         home_thread_mixin_t::real_home_thread = store_view->home_thread();
         rassert(region_is_superset(_store_view->get_region(), region));
     }
@@ -175,6 +179,7 @@ public:
 
 private:
     store_view_t *store_view;
+    scoped_ptr_t<ql::changefeed::server_t> changefeed_server;
 
     DISABLE_COPYING(store_subview_t);
 };
